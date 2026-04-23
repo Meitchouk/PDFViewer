@@ -45,14 +45,14 @@ export default function UploadButton({ onUploadComplete }: UploadButtonProps) {
         body: formData,
       });
 
-      const data = await safeJson<Record<string, unknown>>(res);
+      const data = await safeJson<UploadedFile & { error?: string }>(res);
 
       if (!res.ok) {
-        throw new Error((data.error as string) ?? 'Error desconocido');
+        throw new Error(data.error ?? 'Error desconocido');
       }
 
       setProgress(null);
-      onUploadComplete({ ...data, enabled: true });
+      onUploadComplete(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al subir el archivo');
       setProgress(null);
