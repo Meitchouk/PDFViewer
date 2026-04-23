@@ -9,6 +9,7 @@ import {
   deleteAlias,
   transferAlias,
   ensureAlias,
+  rebaseQRsAfterReplace,
 } from '@/lib/kv';
 import { deletePdfFromDrive } from '@/lib/googleDrive';
 import { toSlug } from '@/lib/utils';
@@ -109,6 +110,10 @@ export async function PUT(
     // Si el fileId viejo no tenía alias, auto-asignar uno al nuevo ID
     const alias = await ensureAlias(toSlug(safeName), newId);
 
+    // Actualizar QRs vinculados al ID anterior
+    const baseUrl = request.headers.get('origin') ?? request.nextUrl.origin;
+    const updatedQRs = await rebaseQRsAfterReplace(fileId, newId, alias, baseUrl);
+
     // Borrar archivo anterior
     if (fileId.startsWith('vb')) {
       const oldBlobUrl = await getBlobUrl(fileId);
@@ -125,6 +130,7 @@ export async function PUT(
       size: String(buffer.length),
       modifiedTime: now,
       alias,
+      updatedQRs, // [{ id, newUrl }] para que el cliente actualice su estado
     });
   } catch (error) {
     console.error('[PUT /api/admin/pdfs/:id] Error:', error);

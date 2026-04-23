@@ -201,6 +201,19 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
           ? { ...p, id: data.id, name: data.name, size: data.size, modifiedTime: data.modifiedTime, alias: data.alias ?? p.alias }
           : p
       ));
+      // Actualizar QRs que apuntaban al ID antiguo
+      if (Array.isArray(data.updatedQRs) && data.updatedQRs.length > 0) {
+        setQRs((prev) => prev.map((q) => {
+          const updated = (data.updatedQRs as Array<{ id: string; newUrl: string | null }>)
+            .find((u) => u.id === q.id);
+          if (!updated) return q;
+          return {
+            ...q,
+            linkedPdfId: data.id,
+            ...(updated.newUrl ? { url: updated.newUrl } : {}),
+          };
+        }));
+      }
       showSuccess(`Archivo reemplazado correctamente. La URL del alias no ha cambiado.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo reemplazar el archivo.');

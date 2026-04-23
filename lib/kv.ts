@@ -151,6 +151,44 @@ export async function deleteQR(id: string): Promise<void> {
   ]);
 }
 
+/**
+ * Cuando se reemplaza un archivo (oldId → newId), actualiza todos los QRs
+ * que tengan linkedPdfId === oldId:
+ *  - Cambia linkedPdfId a newId
+ *  - Si el QR usaba /view/{oldId} como URL, la cambia a /a/{alias}
+ * Devuelve los IDs de QRs actualizados (para sincronizar el estado en el cliente).
+ */
+export async function rebaseQRsAfterReplace(
+  oldId: string,
+  newId: string,
+  alias: string,
+  baseUrl: string, // ej. "https://pdf-viewer-tau-three.vercel.app"
+): Promise<Array<{ id: string; newUrl: string | null }>> {
+  const all = await listQRs();
+  const linked = all.filter((q) => q.linkedPdfId === oldId);
+  if (linked.length === 0) return [];
+
+  const oldViewUrl = `${baseUrl}/view/${oldId}`;
+  const aliasUrl = `${baseUrl}/a/${alias}`;
+
+  await Promise.all(
+    linked.map((q) => {
+      const newUrl = q.url === oldViewUrl ? aliasUrl : null;
+      const updated: QRMeta = {
+        ...q,
+        linkedPdfId: newId,
+        ...(newUrl ? { url: newUrl } : {}),
+      };
+      return getRedis().set(`qr:${q.id}`, updated);
+    }),
+  );
+
+  return linked.map((q) => ({
+    id: q.id,
+    newUrl: q.url === oldViewUrl ? aliasUrl : null,
+  }));
+}
+
 // ── Alias (slug) ────────────────────────────────────────────────────────────
 // alias:{slug} → fileId
 // pdf:alias:{fileId} → slug  (lookup inverso)
