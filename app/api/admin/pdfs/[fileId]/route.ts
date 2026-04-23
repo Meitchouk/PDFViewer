@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { del, put } from '@vercel/blob';
-import { getBlobUrl, getBlobMeta, deleteBlobMeta, updateBlobMeta } from '@/lib/kv';
-import { deletePdfFromDrive, replacePdfOnDrive } from '@/lib/googleDrive';
+import { getBlobUrl, getBlobMeta, deleteBlobMeta, updateBlobMeta, setBlobOverride, getBlobOverride, deleteBlobOverride } from '@/lib/kv';
+import { deletePdfFromDrive, updateDriveFileName } from '@/lib/googleDrive';
 
 const VALID_FILE_ID = /^[a-zA-Z0-9_-]+$/;
 const MAX_SIZE = 50 * 1024 * 1024;
@@ -27,8 +27,13 @@ export async function DELETE(
       }
       await deleteBlobMeta(fileId);
     } else {
-      // Google Drive: eliminar el archivo permanentemente
-      await deletePdfFromDrive(fileId);
+      // Google Drive: eliminar el archivo y limpiar override si existe
+      const override = await getBlobOverride(fileId);
+      await Promise.all([
+        deletePdfFromDrive(fileId),
+        override?.blobUrl ? del(override.blobUrl).catch(() => {}) : Promise.resolve(),
+        deleteBlobOverride(fileId),
+      ]);
     }
 
     return NextResponse.json({ ok: true });
@@ -105,9 +110,36 @@ export async function PUT(
         modifiedTime: now,
       });
     } else {
-      // Google Drive: reemplazar contenido manteniendo el mismo fileId
-      const result = await replacePdfOnDrive(fileId, buffer, safeName);
-      return NextResponse.json({ id: fileId, ...result });
+      // Google Drive: subir nuevo contenido a Blob como override
+      // (drive.files.update con media no funciona en entornos serverless)
+      const oldOverride = await getBlobOverride(fileId);
+
+      const { url: newBlobUrl } = await put(`pdfs/${safeName}`, buffer, {
+        access: 'private',
+        addRandomSuffix: true,
+      });
+
+      await setBlobOverride(fileId, {
+        blobUrl: newBlobUrl,
+        name: safeName,
+        size: String(buffer.length),
+        uploadedAt: now,
+      });
+
+      // Borrar el blob override anterior si existía
+      if (oldOverride?.blobUrl) {
+        await del(oldOverride.blobUrl).catch(() => {});
+      }
+
+      // Actualizar nombre en Drive (solo metadata, sin contenido)
+      await updateDriveFileName(fileId, safeName).catch(() => {});
+
+      return NextResponse.json({
+        id: fileId,
+        name: safeName,
+        size: String(buffer.length),
+        modifiedTime: now,
+      });
     }
   } catch (error) {
     console.error('[PUT /api/admin/pdfs/:id] Error:', error);

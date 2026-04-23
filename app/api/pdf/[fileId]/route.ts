@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPdfStream } from '@/lib/googleDrive';
-import { isPdfEnabled, getBlobUrl } from '@/lib/kv';
+import { isPdfEnabled, getBlobUrl, getBlobOverride } from '@/lib/kv';
 
 // Permitir hasta 60s para streamear PDFs grandes (Vercel Hobby soporta hasta 60s)
 export const maxDuration = 60;
@@ -21,6 +21,33 @@ export async function GET(
   const enabled = await isPdfEnabled(fileId);
   if (!enabled) {
     return new NextResponse('No encontrado', { status: 404 });
+  }
+
+  // Blob override: archivo de Drive cuyo contenido fue reemplazado y guardado en Blob
+  if (!fileId.startsWith('vb')) {
+    const override = await getBlobOverride(fileId);
+    if (override) {
+      try {
+        const res = await fetch(override.blobUrl, {
+          headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
+        });
+        if (res.ok) {
+          const filename = override.name || `${fileId}.pdf`;
+          const disposition = isDownload
+            ? `attachment; filename="${encodeURIComponent(filename)}"`
+            : `inline; filename="${encodeURIComponent(filename)}"`;
+          return new NextResponse(res.body, {
+            headers: {
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': disposition,
+              'Cache-Control': 'private, max-age=3600',
+            },
+          });
+        }
+      } catch {
+        // Si falla el override, continuar y servir desde Drive
+      }
+    }
   }
 
   // Verificar si es un archivo de Vercel Blob (IDs con prefijo 'vb')

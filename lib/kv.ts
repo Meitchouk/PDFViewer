@@ -197,3 +197,26 @@ export async function getAliasMap(fileIds: string[]): Promise<Record<string, str
   return map;
 }
 
+// ── Blob override (contenido de Drive reemplazado y guardado en Blob) ────────
+// Cuando se reemplaza un archivo de Google Drive, el nuevo contenido se sube
+// a Vercel Blob y se guarda aquí. El fileId de Drive permanece sin cambios.
+
+export interface BlobOverride {
+  blobUrl: string;
+  name: string;
+  size: string;
+  uploadedAt: string;
+}
+
+export async function setBlobOverride(fileId: string, data: BlobOverride): Promise<void> {
+  await getRedis().set(`pdf:override:${fileId}`, data);
+}
+
+export async function getBlobOverride(fileId: string): Promise<BlobOverride | null> {
+  return getRedis().get<BlobOverride | null>(`pdf:override:${fileId}`);
+}
+
+export async function deleteBlobOverride(fileId: string): Promise<void> {
+  await getRedis().del(`pdf:override:${fileId}`);
+}
+

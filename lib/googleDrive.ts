@@ -118,31 +118,13 @@ export async function deletePdfFromDrive(fileId: string): Promise<void> {
   await drive.files.delete({ fileId });
 }
 
-export async function replacePdfOnDrive(
-  fileId: string,
-  buffer: Buffer,
-  fileName: string
-): Promise<{ name: string; size: string; modifiedTime: string }> {
+/** Actualiza solo el nombre del archivo en Drive (sin tocar el contenido). */
+export async function updateDriveFileName(fileId: string, fileName: string): Promise<void> {
   const drive = getDriveClient();
-  const readable = Readable.from(buffer);
-
   await drive.files.update({
     fileId,
     requestBody: {
       name: fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`,
     },
-    media: {
-      mimeType: 'application/pdf',
-      body: readable,
-    },
-    fields: 'id, name, size, modifiedTime',
   });
-
-  // Obtener metadata actualizada
-  const meta = await drive.files.get({ fileId, fields: 'name, size, modifiedTime' });
-  return {
-    name: meta.data.name ?? fileName,
-    size: meta.data.size ?? String(buffer.length),
-    modifiedTime: meta.data.modifiedTime ?? new Date().toISOString(),
-  };
 }
