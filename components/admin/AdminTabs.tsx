@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { cn, toSlug } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -88,18 +88,6 @@ function formatDate(iso: string): string {
   } catch {
     return iso;
   }
-}
-
-function toSlug(name: string): string {
-  return name
-    .normalize('NFD')                     // descomponer acentos
-    .replace(/[\u0300-\u036f]/g, '')       // quitar diacríticos
-    .replace(/\.pdf$/i, '')               // quitar extensión
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')          // caracteres no válidos → guión
-    .replace(/^-+|-+$/g, '')              // quitar guiones al inicio/fin
-    .slice(0, 60)                         // máximo 60 chars
-    || 'documento';                       // fallback
 }
 
 // ──────────────────────────────────────────────
@@ -210,10 +198,10 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
       if (!res.ok) throw new Error(data.error ?? 'Error del servidor');
       setPdfs((prev) => prev.map((p) =>
         p.id === fileId
-          ? { ...p, id: data.id, name: data.name, size: data.size, modifiedTime: data.modifiedTime }
+          ? { ...p, id: data.id, name: data.name, size: data.size, modifiedTime: data.modifiedTime, alias: data.alias ?? p.alias }
           : p
       ));
-      showSuccess(`Archivo reemplazado correctamente. La URL del QR no ha cambiado.`);
+      showSuccess(`Archivo reemplazado correctamente. La URL del alias no ha cambiado.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo reemplazar el archivo.');
     } finally {
@@ -221,7 +209,7 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
     }
   }
   // ── Upload ───────────────────────────────────
-  function handleUploadComplete(newFile: { id: string; name: string; size: string; modifiedTime: string }) {
+  function handleUploadComplete(newFile: { id: string; name: string; size: string; modifiedTime: string; alias?: string }) {
     const newPdf: PdfItem = { ...newFile, enabled: true, status: 'ok' };
     setPdfs((prev) => {
       if (prev.some((p) => p.id === newPdf.id)) return prev;

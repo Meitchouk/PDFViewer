@@ -169,6 +169,39 @@ export async function setAlias(slug: string, fileId: string): Promise<void> {
   await Promise.all(ops);
 }
 
+/**
+ * Asigna alias solo si:
+ * - El fileId aún no tiene alias, Y
+ * - El slug no está ocupado por otro documento.
+ * Si hay colisión de slug, añade sufijo numérico hasta encontrar uno libre.
+ * Devuelve el slug asignado.
+ */
+export async function ensureAlias(slug: string, fileId: string): Promise<string> {
+  const r = getRedis();
+
+  // Si ya tiene alias, no hacer nada
+  const existing = await r.get<string>(`pdf:alias:${fileId}`);
+  if (existing) return existing;
+
+  // Buscar slug disponible
+  let candidate = slug;
+  let suffix = 2;
+  while (true) {
+    const owner = await r.get<string>(`alias:${candidate}`);
+    if (!owner || owner === fileId) break;
+    candidate = `${slug}-${suffix++}`;
+    if (candidate.length > 60) {
+      candidate = `${slug.slice(0, 57)}-${suffix++}`;
+    }
+  }
+
+  await Promise.all([
+    r.set(`alias:${candidate}`, fileId),
+    r.set(`pdf:alias:${fileId}`, candidate),
+  ]);
+  return candidate;
+}
+
 export async function getFileIdByAlias(slug: string): Promise<string | null> {
   return getRedis().get<string>(`alias:${slug}`);
 }

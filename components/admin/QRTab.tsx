@@ -52,9 +52,11 @@ export default function QRTab({
 
   function getPdfUrl(id: string | null) {
     if (!id) return null;
-    return typeof window !== 'undefined'
-      ? `${window.location.origin}/view/${id}`
-      : `/view/${id}`;
+    const pdf = pdfs.find((p) => p.id === id);
+    const base = typeof window !== 'undefined' ? window.location.origin : '';
+    // Usar alias si está disponible (URL estable aunque cambie el archivo)
+    if (pdf?.alias) return `${base}/a/${pdf.alias}`;
+    return `${base}/view/${id}`;
   }
 
   async function handleDelete(qrId: string) {

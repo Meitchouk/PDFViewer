@@ -7,6 +7,7 @@ interface UploadedFile {
   name: string;
   size: string;
   modifiedTime: string;
+  alias?: string;
 }
 
 interface UploadButtonProps {

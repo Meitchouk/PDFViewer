@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
 import { randomUUID } from 'crypto';
-import { registerBlob } from '@/lib/kv';
+import { registerBlob, ensureAlias } from '@/lib/kv';
+import { toSlug } from '@/lib/utils';
 
 // Máximo 50 MB por archivo
 const MAX_SIZE = 50 * 1024 * 1024;
@@ -54,8 +55,11 @@ export async function POST(request: NextRequest) {
       uploadedAt,
     });
 
+    // Auto-asignar alias desde el nombre del archivo
+    const slug = await ensureAlias(toSlug(safeName), id);
+
     return NextResponse.json(
-      { id, name: safeName, size: String(buffer.length), modifiedTime: uploadedAt },
+      { id, name: safeName, size: String(buffer.length), modifiedTime: uploadedAt, alias: slug },
       { status: 201 }
     );
   } catch (error) {

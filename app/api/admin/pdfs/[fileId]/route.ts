@@ -8,8 +8,10 @@ import {
   getAliasByFileId,
   deleteAlias,
   transferAlias,
+  ensureAlias,
 } from '@/lib/kv';
 import { deletePdfFromDrive } from '@/lib/googleDrive';
+import { toSlug } from '@/lib/utils';
 
 const VALID_FILE_ID = /^[a-zA-Z0-9_-]+$/;
 const MAX_SIZE = 50 * 1024 * 1024;
@@ -102,8 +104,10 @@ export async function PUT(
       uploadedAt: now,
     });
 
-    // Transferir alias: alias:{slug} → newId
+    // Transferir alias del ID viejo al nuevo (o crear uno si no tenía)
     await transferAlias(fileId, newId);
+    // Si el fileId viejo no tenía alias, auto-asignar uno al nuevo ID
+    const alias = await ensureAlias(toSlug(safeName), newId);
 
     // Borrar archivo anterior
     if (fileId.startsWith('vb')) {
@@ -120,6 +124,7 @@ export async function PUT(
       name: safeName,
       size: String(buffer.length),
       modifiedTime: now,
+      alias,
     });
   } catch (error) {
     console.error('[PUT /api/admin/pdfs/:id] Error:', error);
