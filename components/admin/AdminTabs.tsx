@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { cn, toSlug } from '@/lib/utils';
+import { cn, toSlug, safeJson } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -137,8 +137,8 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
     startTransition(async () => {
       try {
         const res = await fetch(`/api/admin/pdfs/${fileId}/toggle`, { method: 'POST' });
+        const data = await safeJson<{ enabled: boolean }>(res);
         if (!res.ok) throw new Error('Error del servidor');
-        const data = await res.json();
         setPdfs((prev) => prev.map((p) => p.id === fileId ? { ...p, enabled: data.enabled } : p));
       } catch {
         setPdfs((prev) => prev.map((p) => p.id === fileId ? { ...p, enabled: !p.enabled } : p));
@@ -194,8 +194,8 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
 
     try {
       const res = await fetch(`/api/admin/pdfs/${fileId}`, { method: 'PUT', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Error del servidor');
+      const data = await safeJson<Record<string, unknown>>(res);
+      if (!res.ok) throw new Error((data.error as string) ?? 'Error del servidor');
       setPdfs((prev) => prev.map((p) =>
         p.id === fileId
           ? { ...p, id: data.id, name: data.name, size: data.size, modifiedTime: data.modifiedTime, alias: data.alias ?? p.alias }
@@ -254,8 +254,8 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
             body: JSON.stringify({ slug: pdf.alias }),
           });
           if (!res.ok) {
-            const d = await res.json();
-            throw new Error(d.error ?? 'Error del servidor');
+            const d = await safeJson<Record<string, unknown>>(res);
+            throw new Error((d.error as string) ?? 'Error del servidor');
           }
           setPdfs((prev) => prev.map((p) => p.id === fileId ? { ...p, alias: undefined } : p));
           showSuccess('Alias eliminado');
@@ -278,8 +278,8 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug, fileId }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Error del servidor');
+      const data = await safeJson<Record<string, unknown>>(res);
+      if (!res.ok) throw new Error((data.error as string) ?? 'Error del servidor');
       setPdfs((prev) => prev.map((p) => p.id === fileId ? { ...p, alias: slug } : p));
       showSuccess(`Alias "${slug}" guardado. URL del QR: /a/${slug}`);
       setEditAliasId(null);

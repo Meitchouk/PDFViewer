@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, DragEvent } from 'react';
+import { safeJson } from '@/lib/utils';
 
 interface UploadedFile {
   id: string;
@@ -44,10 +45,10 @@ export default function UploadButton({ onUploadComplete }: UploadButtonProps) {
         body: formData,
       });
 
-      const data = await res.json();
+      const data = await safeJson<Record<string, unknown>>(res);
 
       if (!res.ok) {
-        throw new Error(data.error ?? 'Error desconocido');
+        throw new Error((data.error as string) ?? 'Error desconocido');
       }
 
       setProgress(null);
