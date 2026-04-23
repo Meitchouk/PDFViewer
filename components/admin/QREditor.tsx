@@ -317,7 +317,7 @@ export default function QREditor({ linkedPdfId, initialPdfUrl, existingQR, onSav
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label>Estilo de puntos</Label>
-            <Select value={opts.dotsType} onValueChange={(v) => set('dotsType', v)}>
+            <Select value={opts.dotsType} onValueChange={(v) => set('dotsType', v ?? '')}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -330,7 +330,7 @@ export default function QREditor({ linkedPdfId, initialPdfUrl, existingQR, onSav
           </div>
           <div className="space-y-1.5">
             <Label>Estilo de esquinas</Label>
-            <Select value={opts.cornersType} onValueChange={(v) => set('cornersType', v)}>
+            <Select value={opts.cornersType} onValueChange={(v) => set('cornersType', v ?? '')}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
