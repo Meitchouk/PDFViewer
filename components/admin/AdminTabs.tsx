@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useCallback } from 'react';
+import { useState, useTransition, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +26,11 @@ import {
   Ban,
   Upload,
   Trash2,
+  Replace,
+  Link2,
+  Check,
+  X,
+  Copy,
 } from 'lucide-react';
 import UploadButton from './UploadButton';
 import QRTab from './QRTab';
@@ -42,6 +47,7 @@ export interface PdfItem {
   modifiedTime: string;
   enabled: boolean;
   status?: 'ok' | 'invalid_type' | 'too_large';
+  alias?: string;
 }
 
 export interface QRItem {
@@ -84,6 +90,18 @@ function formatDate(iso: string): string {
   }
 }
 
+function toSlug(name: string): string {
+  return name
+    .normalize('NFD')                     // descomponer acentos
+    .replace(/[\u0300-\u036f]/g, '')       // quitar diacríticos
+    .replace(/\.pdf$/i, '')               // quitar extensión
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')          // caracteres no válidos → guión
+    .replace(/^-+|-+$/g, '')              // quitar guiones al inicio/fin
+    .slice(0, 60)                         // máximo 60 chars
+    || 'documento';                       // fallback
+}
+
 // ──────────────────────────────────────────────
 // Main component
 // ──────────────────────────────────────────────
@@ -102,6 +120,12 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
   const [activeTab, setActiveTab] = useState('docs');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [replacingId, setReplacingId] = useState<string | null>(null);
+  const replaceFileRef = useRef<HTMLInputElement>(null);
+  const [editAliasId, setEditAliasId] = useState<string | null>(null);
+  const [aliasInput, setAliasInput] = useState('');
+  const [aliasSaving, setAliasSaving] = useState(false);
+  const [aliasError, setAliasError] = useState<string | null>(null);
 
   const showSuccess = useCallback((msg: string) => {
     setSuccessMsg(msg);
@@ -153,7 +177,49 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
       setDeletingId(null);
     }
   }
+  // ── Replace ───────────────────────────────────
+  function openReplacePicker(fileId: string) {
+    setReplacingId(fileId);
+    // Reset input para permitir seleccionar el mismo archivo
+    if (replaceFileRef.current) replaceFileRef.current.value = '';
+    replaceFileRef.current?.click();
+  }
 
+  async function handleReplaceFile(file: File) {
+    if (!replacingId) return;
+    const fileId = replacingId;
+
+    if (file.type !== 'application/pdf') {
+      setError('Solo se permiten archivos PDF');
+      setReplacingId(null);
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      setError('El archivo supera el límite de 50 MB');
+      setReplacingId(null);
+      return;
+    }
+
+    setError(null);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch(`/api/admin/pdfs/${fileId}`, { method: 'PUT', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Error del servidor');
+      setPdfs((prev) => prev.map((p) =>
+        p.id === fileId
+          ? { ...p, name: data.name, size: data.size, modifiedTime: data.modifiedTime }
+          : p
+      ));
+      showSuccess(`Archivo reemplazado correctamente. La URL del QR no ha cambiado.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo reemplazar el archivo.');
+    } finally {
+      setReplacingId(null);
+    }
+  }
   // ── Upload ───────────────────────────────────
   function handleUploadComplete(newFile: { id: string; name: string; size: string; modifiedTime: string }) {
     const newPdf: PdfItem = { ...newFile, enabled: true, status: 'ok' };
@@ -162,6 +228,65 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
       return [newPdf, ...prev].sort((a, b) => a.name.localeCompare(b.name));
     });
     showSuccess(`"${newFile.name}" subido correctamente`);
+  }
+
+  // ── Alias ─────────────────────────────────────
+  function openAliasEditor(pdf: PdfItem) {
+    setEditAliasId(pdf.id);
+    setAliasInput(pdf.alias ?? toSlug(pdf.name));
+    setAliasError(null);
+  }
+
+  async function handleSaveAlias(fileId: string) {
+    const slug = aliasInput.trim().toLowerCase();
+    setAliasError(null);
+
+    if (slug === '') {
+      // Borrar alias si se deja vacío
+      const pdf = pdfs.find((p) => p.id === fileId);
+      if (pdf?.alias) {
+        setAliasSaving(true);
+        try {
+          const res = await fetch('/api/admin/aliases', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug: pdf.alias }),
+          });
+          if (!res.ok) {
+            const d = await res.json();
+            throw new Error(d.error ?? 'Error del servidor');
+          }
+          setPdfs((prev) => prev.map((p) => p.id === fileId ? { ...p, alias: undefined } : p));
+          showSuccess('Alias eliminado');
+        } catch (err) {
+          setAliasError(err instanceof Error ? err.message : 'Error al guardar');
+        } finally {
+          setAliasSaving(false);
+          setEditAliasId(null);
+        }
+      } else {
+        setEditAliasId(null);
+      }
+      return;
+    }
+
+    setAliasSaving(true);
+    try {
+      const res = await fetch('/api/admin/aliases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, fileId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Error del servidor');
+      setPdfs((prev) => prev.map((p) => p.id === fileId ? { ...p, alias: slug } : p));
+      showSuccess(`Alias "${slug}" guardado. URL del QR: /a/${slug}`);
+      setEditAliasId(null);
+    } catch (err) {
+      setAliasError(err instanceof Error ? err.message : 'Error al guardar');
+    } finally {
+      setAliasSaving(false);
+    }
   }
 
   // ── Open QR editor ───────────────────────────
@@ -281,6 +406,68 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
         ) : null;
       })()}
 
+      {/* Editor de alias */}
+      {editAliasId && (() => {
+        const pdf = pdfs.find((p) => p.id === editAliasId);
+        if (!pdf) return null;
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const previewUrl = aliasInput.trim() ? `${origin}/a/${aliasInput.trim().toLowerCase()}` : null;
+        return (
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-3 flex flex-col gap-2.5 text-sm">
+            <div className="flex items-center gap-2">
+              <Link2 className="size-4 text-muted-foreground shrink-0" />
+              <span className="font-medium truncate">
+                Alias para <span className="text-foreground">{pdf.name}</span>
+              </span>
+              <button onClick={() => setEditAliasId(null)} className="ml-auto text-muted-foreground hover:text-foreground transition-colors">
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground shrink-0 text-xs">/a/</span>
+              <input
+                type="text"
+                value={aliasInput}
+                onChange={(e) => {
+                  setAliasInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
+                  setAliasError(null);
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveAlias(editAliasId); }}
+                placeholder="mi-alias"
+                className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                autoFocus
+              />
+              <Button
+                size="sm"
+                onClick={() => handleSaveAlias(editAliasId)}
+                disabled={aliasSaving}
+              >
+                {aliasSaving ? <RefreshCw className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                Guardar
+              </Button>
+            </div>
+            {aliasError && (
+              <p className="text-xs text-destructive">{aliasError}</p>
+            )}
+            {previewUrl && !aliasError && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-background border border-border rounded-md px-2.5 py-1.5">
+                <span className="truncate flex-1">{previewUrl}</span>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(previewUrl); showSuccess('URL copiada'); }}
+                  className="shrink-0 hover:text-foreground transition-colors"
+                  title="Copiar URL"
+                >
+                  <Copy className="size-3.5" />
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Solo letras minúsculas, números y guiones. Mínimo 2 caracteres. Deja vacío para quitar el alias.
+            </p>
+          </div>
+        );
+      })()}
+
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full sm:w-auto">
@@ -308,6 +495,18 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
         <TabsContent value="docs" className="mt-4 space-y-4">
           {/* Upload zone */}
           <UploadButton onUploadComplete={handleUploadComplete} />
+
+          {/* Input oculto para reemplazar archivo */}
+          <input
+            ref={replaceFileRef}
+            type="file"
+            accept="application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleReplaceFile(file);
+            }}
+          />
 
           {/* Summary */}
           <div className="flex items-center gap-3 text-xs text-muted-foreground px-1">
@@ -364,15 +563,29 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
                               </div>
                             ) : (
                               <div className={`shrink-0 rounded overflow-hidden shadow-sm ring-1 ring-black/10 transition-opacity ${pdf.enabled ? 'opacity-100' : 'opacity-40'}`}>
-                                <PDFThumbnail fileId={pdf.id} width={32} />
+                                {replacingId === pdf.id ? (
+                                  <div className="w-8 h-11 flex items-center justify-center bg-muted">
+                                    <RefreshCw className="size-3.5 animate-spin text-muted-foreground" />
+                                  </div>
+                                ) : (
+                                  <PDFThumbnail fileId={pdf.id} width={32} />
+                                )}
                               </div>
                             )}
-                            <span
-                              className={`truncate max-w-35 sm:max-w-xs font-medium ${isBlocked ? 'text-muted-foreground line-through' : pdf.enabled ? 'text-foreground' : 'text-muted-foreground'}`}
-                              title={pdf.name}
-                            >
-                              {pdf.name}
-                            </span>
+                            <div className="flex flex-col min-w-0">
+                              <span
+                                className={`truncate max-w-35 sm:max-w-xs font-medium ${isBlocked ? 'text-muted-foreground line-through' : pdf.enabled ? 'text-foreground' : 'text-muted-foreground'}`}
+                                title={pdf.name}
+                              >
+                                {pdf.name}
+                              </span>
+                              {pdf.alias && (
+                                <span className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
+                                  <Link2 className="size-2.5 shrink-0" />
+                                  <span className="truncate">/a/{pdf.alias}</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
                         {/* Size */}
@@ -428,9 +641,18 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
                                     Descargar
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => openReplacePicker(pdf.id)}>
+                                    <Replace className="size-4" />
+                                    Reemplazar archivo
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
                                   <DropdownMenuItem onClick={() => openQRForPdf(pdf.id)}>
                                     <QrCode className="size-4" />
                                     Crear QR
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => openAliasEditor(pdf)}>
+                                    <Link2 className="size-4" />
+                                    {pdf.alias ? 'Editar alias' : 'Configurar alias'}
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem

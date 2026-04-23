@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { verifyToken, COOKIE_NAME } from '@/lib/auth';
 import { listAllDriveFilesWithStatus } from '@/lib/googleDrive';
-import { getEnabledMap, listBlobFiles, listQRs } from '@/lib/kv';
+import { getEnabledMap, listBlobFiles, listQRs, getAliasMap } from '@/lib/kv';
 import AdminTabs, { type PdfItem } from '@/components/admin/AdminTabs';
 import LogoutButton from './LogoutButton';
 import { ModeToggle } from '@/components/ModeToggle';
@@ -47,11 +47,15 @@ export default async function AdminPage() {
     ];
 
     const validIds = allFiles.filter((f) => !f.status || f.status === 'ok').map((f) => f.id);
-    const enabledMap = await getEnabledMap(validIds);
+    const [enabledMap, aliasMap] = await Promise.all([
+      getEnabledMap(validIds),
+      getAliasMap(validIds),
+    ]);
 
     pdfs = allFiles.map((f) => ({
       ...f,
       enabled: enabledMap[f.id] ?? true,
+      alias: aliasMap[f.id],
     }));
   } catch (err) {
     console.error('[Admin] Error cargando PDFs:', err);

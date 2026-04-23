@@ -95,6 +95,12 @@ export async function deleteBlobMeta(id: string): Promise<void> {
   ]);
 }
 
+export async function updateBlobMeta(id: string, updates: Partial<BlobMeta>): Promise<void> {
+  const meta = await getRedis().get<BlobMeta | null>(`pdf:blob:${id}`);
+  if (!meta) throw new Error(`Blob ${id} no encontrado en Redis`);
+  await getRedis().set(`pdf:blob:${id}`, { ...meta, ...updates });
+}
+
 // ── QR metadata ────────────────────────────────────────────────────────────
 
 export interface QRMeta {
@@ -144,3 +150,50 @@ export async function deleteQR(id: string): Promise<void> {
     r.lrem('qr:ids', 0, id),
   ]);
 }
+
+// ── Alias (slug) ────────────────────────────────────────────────────────────
+// alias:{slug} → fileId
+// pdf:alias:{fileId} → slug  (lookup inverso)
+
+export async function setAlias(slug: string, fileId: string): Promise<void> {
+  const r = getRedis();
+  // Si el fileId ya tenía un alias anterior, borrarlo
+  const oldSlug = await r.get<string>(`pdf:alias:${fileId}`);
+  const ops: Promise<unknown>[] = [
+    r.set(`alias:${slug}`, fileId),
+    r.set(`pdf:alias:${fileId}`, slug),
+  ];
+  if (oldSlug && oldSlug !== slug) {
+    ops.push(r.del(`alias:${oldSlug}`));
+  }
+  await Promise.all(ops);
+}
+
+export async function getFileIdByAlias(slug: string): Promise<string | null> {
+  return getRedis().get<string>(`alias:${slug}`);
+}
+
+export async function getAliasByFileId(fileId: string): Promise<string | null> {
+  return getRedis().get<string>(`pdf:alias:${fileId}`);
+}
+
+export async function deleteAlias(slug: string): Promise<void> {
+  const r = getRedis();
+  const fileId = await r.get<string>(`alias:${slug}`);
+  const ops: Promise<unknown>[] = [r.del(`alias:${slug}`)];
+  if (fileId) ops.push(r.del(`pdf:alias:${fileId}`));
+  await Promise.all(ops);
+}
+
+export async function getAliasMap(fileIds: string[]): Promise<Record<string, string>> {
+  if (fileIds.length === 0) return {};
+  const values = await getRedis().mget<(string | null)[]>(
+    ...fileIds.map((id) => `pdf:alias:${id}`)
+  );
+  const map: Record<string, string> = {};
+  fileIds.forEach((id, i) => {
+    if (values[i]) map[id] = values[i] as string;
+  });
+  return map;
+}
+
