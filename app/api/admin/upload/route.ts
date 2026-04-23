@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(arrayBuffer);
 
     const { url } = await put(`pdfs/${safeName}`, buffer, {
-      access: 'public',
+      access: 'private',
       addRandomSuffix: true,
     });
 

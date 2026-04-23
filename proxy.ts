@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
-import { COOKIE_NAME } from '@/lib/auth';
+
+// Inline para evitar alias @/ en edge runtime
+const COOKIE_NAME = 'admin_token';
 
 function getSecret() {
   return new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!);

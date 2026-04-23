@@ -29,7 +29,11 @@ export async function GET(
       return new NextResponse('No encontrado', { status: 404 });
     }
     try {
-      const res = await fetch(blobUrl);
+      const res = await fetch(blobUrl, {
+        headers: {
+          Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
+        },
+      });
       if (!res.ok) return new NextResponse('No encontrado', { status: 404 });
       return new NextResponse(res.body, {
         headers: {

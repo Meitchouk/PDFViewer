@@ -1,9 +1,11 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
-  // Turbopack es el bundler por defecto en Next.js 16
-  // pdfjs-dist no necesita el alias de canvas porque se carga con ssr:false
-  turbopack: {},
+  // Indicar explícitamente el root para que Turbopack no lo infiera mal
+  turbopack: {
+    root: path.resolve("."),
+  },
 };
 
 export default nextConfig;
