@@ -86,6 +86,15 @@ export async function listBlobFiles(): Promise<Array<BlobMeta & { id: string }>>
     .filter((x): x is BlobMeta & { id: string } => x !== null);
 }
 
+export async function deleteBlobMeta(id: string): Promise<void> {
+  const r = getRedis();
+  await Promise.all([
+    r.del(`pdf:blob:${id}`),
+    r.del(key(id)),
+    r.lrem('pdf:blob:ids', 0, id),
+  ]);
+}
+
 // ── QR metadata ────────────────────────────────────────────────────────────
 
 export interface QRMeta {

@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   Ban,
   Upload,
+  Trash2,
 } from 'lucide-react';
 import UploadButton from './UploadButton';
 import QRTab from './QRTab';
@@ -99,6 +100,8 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
   const [activeQRPdfId, setActiveQRPdfId] = useState<string | null>(null);
   const [activeQRId, setActiveQRId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('docs');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const showSuccess = useCallback((msg: string) => {
     setSuccessMsg(msg);
@@ -132,6 +135,23 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
         setTogglingId(null);
       }
     });
+  }
+
+  // ── Delete ───────────────────────────────────
+  async function handleDelete(fileId: string) {
+    setDeletingId(fileId);
+    setConfirmDeleteId(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/pdfs/${fileId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Error del servidor');
+      setPdfs((prev) => prev.filter((p) => p.id !== fileId));
+      showSuccess('Documento eliminado correctamente');
+    } catch {
+      setError('No se pudo eliminar el documento. Intenta de nuevo.');
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   // ── Upload ───────────────────────────────────
@@ -219,6 +239,47 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
           {error}
         </div>
       )}
+
+      {/* Confirmación de eliminación */}
+      {confirmDeleteId && (() => {
+        const pdf = pdfs.find((p) => p.id === confirmDeleteId);
+        return pdf ? (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm">
+            <div className="flex items-center gap-2 min-w-0">
+              <Trash2 className="size-4 text-destructive shrink-0" />
+              <span className="text-foreground">
+                ¿Eliminar{' '}
+                <span className="font-medium truncate max-w-50 inline-block align-bottom" title={pdf.name}>
+                  {pdf.name}
+                </span>
+                ? Esta acción no se puede deshacer.
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmDeleteId(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={deletingId === confirmDeleteId}
+                onClick={() => handleDelete(confirmDeleteId)}
+              >
+                {deletingId === confirmDeleteId ? (
+                  <RefreshCw className="size-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="size-3.5" />
+                )}
+                Eliminar
+              </Button>
+            </div>
+          </div>
+        ) : null;
+      })()}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -378,6 +439,14 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
                                   >
                                     {pdf.enabled ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                                     {pdf.enabled ? 'Ocultar' : 'Mostrar'}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => setConfirmDeleteId(pdf.id)}
+                                    className="text-destructive focus:text-destructive"
+                                  >
+                                    <Trash2 className="size-4" />
+                                    Eliminar
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
