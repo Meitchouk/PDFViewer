@@ -194,8 +194,12 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
 
     try {
       const res = await fetch(`/api/admin/pdfs/${fileId}`, { method: 'PUT', body: formData });
-      const data = await safeJson<Record<string, unknown>>(res);
-      if (!res.ok) throw new Error((data.error as string) ?? 'Error del servidor');
+      const data = await safeJson<{
+        id: string; name: string; size: string; modifiedTime: string; alias: string;
+        updatedQRs?: Array<{ id: string; newUrl: string | null }>;
+        error?: string;
+      }>(res);
+      if (!res.ok) throw new Error(data.error ?? 'Error del servidor');
       setPdfs((prev) => prev.map((p) =>
         p.id === fileId
           ? { ...p, id: data.id, name: data.name, size: data.size, modifiedTime: data.modifiedTime, alias: data.alias ?? p.alias }
@@ -204,8 +208,7 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
       // Actualizar QRs que apuntaban al ID antiguo
       if (Array.isArray(data.updatedQRs) && data.updatedQRs.length > 0) {
         setQRs((prev) => prev.map((q) => {
-          const updated = (data.updatedQRs as Array<{ id: string; newUrl: string | null }>)
-            .find((u) => u.id === q.id);
+          const updated = data.updatedQRs!.find((u) => u.id === q.id);
           if (!updated) return q;
           return {
             ...q,
@@ -254,8 +257,8 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
             body: JSON.stringify({ slug: pdf.alias }),
           });
           if (!res.ok) {
-            const d = await safeJson<Record<string, unknown>>(res);
-            throw new Error((d.error as string) ?? 'Error del servidor');
+            const d = await safeJson<{ error?: string }>(res);
+            throw new Error(d.error ?? 'Error del servidor');
           }
           setPdfs((prev) => prev.map((p) => p.id === fileId ? { ...p, alias: undefined } : p));
           showSuccess('Alias eliminado');
@@ -278,8 +281,8 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug, fileId }),
       });
-      const data = await safeJson<Record<string, unknown>>(res);
-      if (!res.ok) throw new Error((data.error as string) ?? 'Error del servidor');
+      const data = await safeJson<{ error?: string }>(res);
+      if (!res.ok) throw new Error(data.error ?? 'Error del servidor');
       setPdfs((prev) => prev.map((p) => p.id === fileId ? { ...p, alias: slug } : p));
       showSuccess(`Alias "${slug}" guardado. URL del QR: /a/${slug}`);
       setEditAliasId(null);
