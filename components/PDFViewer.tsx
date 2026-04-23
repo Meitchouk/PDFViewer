@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-// ⚠️ El workerSrc DEBE configurarse en este mismo archivo (App Router requirement)
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url
@@ -17,144 +17,140 @@ interface PDFViewerProps {
   fileName: string;
 }
 
-export default function PDFViewer({ fileId, fileName }: PDFViewerProps) {
-  const [numPages, setNumPages] = useState<number>(0);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [containerWidth, setContainerWidth] = useState<number>(0);
+const ZOOM_STEP = 1.25;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 4;
+
+export default function PDFViewer({ fileId }: PDFViewerProps) {
+  const [numPages, setNumPages] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [zoom, setZoom] = useState(1); // 1 = ajustar al ancho disponible
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Medir el contenedor para que el PDF ocupe exactamente el ancho disponible
-  const containerRef = useCallback((node: HTMLDivElement | null) => {
-    if (node) {
-      setContainerWidth(node.clientWidth);
-    }
-  }, []);
-
-  // Re-medir en resize
+  // Medir el ancho del contenedor con ResizeObserver
   useEffect(() => {
-    const handleResize = () => {
-      const el = document.getElementById('pdf-container');
-      if (el) setContainerWidth(el.clientWidth);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w > 0) setContainerWidth(w);
+    });
+    ro.observe(containerRef.current);
+    setContainerWidth(containerRef.current.clientWidth);
+    return () => ro.disconnect();
   }, []);
 
-  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
-    setNumPages(numPages);
-    setLoading(false);
-  }
+  // A zoom=1 la página llena el ancho disponible (menos padding 48px)
+  const pageWidth = containerWidth > 0
+    ? Math.max(120, Math.floor((containerWidth - 48) * zoom))
+    : undefined;
 
-  function onDocumentLoadError(err: Error) {
-    console.error('PDF load error:', err);
-    setError('No se pudo cargar el PDF. Intenta de nuevo.');
-    setLoading(false);
-  }
-
-  const pdfUrl = `/api/pdf/${fileId}`;
+  const dpr = typeof window !== 'undefined' ? Math.min(2, window.devicePixelRatio) : 1;
 
   return (
     <div className="flex flex-col h-full">
-      {/* Barra de navegación */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between shadow-sm">
-        <span className="text-sm font-medium text-gray-700 truncate max-w-[50%]" title={fileName}>
-          {fileName}
-        </span>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
-            disabled={pageNumber <= 1}
-            className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            aria-label="Página anterior"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <span className="text-sm text-gray-600 min-w-20 text-center">
-            {loading ? '...' : `${pageNumber} / ${numPages}`}
+      {/* Barra de zoom */}
+      <div className="flex items-center justify-center gap-1.5 py-1.5 px-4 bg-background border-b border-border shrink-0">
+        <button
+          onClick={() => setZoom(z => Math.max(MIN_ZOOM, parseFloat((z / ZOOM_STEP).toFixed(4))))}
+          disabled={zoom <= MIN_ZOOM}
+          className="p-1.5 rounded hover:bg-muted disabled:opacity-40 transition-colors"
+          title="Reducir zoom"
+        >
+          <ZoomOut className="size-4" />
+        </button>
+
+        <button
+          onClick={() => setZoom(1)}
+          className="text-xs tabular-nums min-w-14 text-center py-1 px-2 rounded hover:bg-muted transition-colors text-muted-foreground font-medium"
+          title="Restablecer al ancho de pantalla"
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+
+        <button
+          onClick={() => setZoom(z => Math.min(MAX_ZOOM, parseFloat((z * ZOOM_STEP).toFixed(4))))}
+          disabled={zoom >= MAX_ZOOM}
+          className="p-1.5 rounded hover:bg-muted disabled:opacity-40 transition-colors"
+          title="Aumentar zoom"
+        >
+          <ZoomIn className="size-4" />
+        </button>
+
+        <div className="w-px h-4 bg-border mx-1" />
+
+        <button
+          onClick={() => setZoom(1)}
+          className={cn(
+            'p-1.5 rounded transition-colors text-muted-foreground',
+            zoom === 1 ? 'bg-muted' : 'hover:bg-muted'
+          )}
+          title="Ajustar al ancho de pantalla"
+        >
+          <Maximize2 className="size-3.5" />
+        </button>
+
+        {numPages > 0 && (
+          <span className="ml-3 text-xs text-muted-foreground">
+            {numPages} {numPages === 1 ? 'página' : 'páginas'}
           </span>
-          <button
-            onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
-            disabled={pageNumber >= numPages}
-            className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            aria-label="Página siguiente"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        </div>
+        )}
       </div>
 
-      {/* Área del PDF */}
+      {/* Área de páginas — scroll vertical, centrado, libro */}
       <div
-        id="pdf-container"
         ref={containerRef}
-        className="flex-1 overflow-auto bg-gray-100 flex flex-col items-center"
+        className="relative flex-1 overflow-auto bg-muted/40"
       >
         {error ? (
           <div className="flex items-center justify-center h-full p-8">
             <div className="text-center">
-              <p className="text-red-500 font-medium">{error}</p>
+              <p className="text-destructive font-medium mb-3">{error}</p>
               <button
                 onClick={() => { setError(null); setLoading(true); }}
-                className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 transition-colors"
               >
                 Reintentar
               </button>
             </div>
           </div>
         ) : (
-          <TransformWrapper
-            initialScale={1}
-            minScale={0.5}
-            maxScale={4}
-            centerOnInit
-            panning={{ disabled: false }}
-          >
-            <TransformComponent
-              wrapperStyle={{ width: '100%', display: 'flex', justifyContent: 'center' }}
-              contentStyle={{ display: 'flex', justifyContent: 'center' }}
+          <div className="flex flex-col items-center gap-5 py-6">
+            <Document
+              file={`/api/pdf/${fileId}`}
+              onLoadSuccess={({ numPages }) => { setNumPages(numPages); setLoading(false); }}
+              onLoadError={() => { setError('No se pudo cargar el PDF. Intenta de nuevo.'); setLoading(false); }}
+              loading={null}
             >
-              <Document
-                file={pdfUrl}
-                onLoadSuccess={onDocumentLoadSuccess}
-                onLoadError={onDocumentLoadError}
-                loading={
-                  <div className="flex items-center justify-center p-16">
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                      <span className="text-sm text-gray-500">Cargando PDF...</span>
-                    </div>
-                  </div>
-                }
-              >
-                <Page
-                  pageNumber={pageNumber}
-                  width={containerWidth > 0 ? containerWidth : undefined}
-                  // Limitar a 2x para evitar canvas gigantes en móviles Retina
-                  devicePixelRatio={typeof window !== 'undefined' ? Math.min(2, window.devicePixelRatio) : 1}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                  className="shadow-lg"
-                />
-              </Document>
-            </TransformComponent>
-          </TransformWrapper>
+              {numPages > 0 && Array.from({ length: numPages }, (_, i) => (
+                <div
+                  key={i + 1}
+                  className="shadow-xl ring-1 ring-black/10 bg-white"
+                >
+                  <Page
+                    pageNumber={i + 1}
+                    width={pageWidth}
+                    devicePixelRatio={dpr}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                  />
+                </div>
+              ))}
+            </Document>
+          </div>
+        )}
+
+        {/* Overlay de carga inicial */}
+        {loading && !error && (
+          <div className="absolute inset-0 bg-background/60 flex items-center justify-center z-10 pointer-events-none">
+            <div className="bg-background rounded-xl p-6 shadow-xl flex flex-col items-center gap-3">
+              <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-muted-foreground">Cargando PDF...</span>
+            </div>
+          </div>
         )}
       </div>
-
-      {/* Indicador de carga */}
-      {loading && !error && (
-        <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50 pointer-events-none">
-          <div className="bg-white rounded-xl p-6 shadow-xl flex flex-col items-center gap-3">
-            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm text-gray-600">Cargando...</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

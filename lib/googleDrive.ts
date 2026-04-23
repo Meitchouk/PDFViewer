@@ -24,6 +24,32 @@ export interface DriveFile {
   modifiedTime: string;
 }
 
+export interface DriveFileWithStatus extends DriveFile {
+  mimeType: string;
+  status: 'ok' | 'invalid_type' | 'too_large';
+}
+
+const MAX_DISPLAY_BYTES = 50 * 1024 * 1024;
+
+export async function listAllDriveFilesWithStatus(): Promise<DriveFileWithStatus[]> {
+  const drive = getDriveClient();
+  const res = await drive.files.list({
+    q: `'${process.env.DRIVE_FOLDER_ID}' in parents and trashed=false`,
+    fields: 'files(id, name, size, modifiedTime, mimeType)',
+    pageSize: 100,
+    orderBy: 'name',
+  });
+  return ((res.data.files ?? []) as Array<{
+    id: string; name: string; size: string; modifiedTime: string; mimeType: string;
+  }>).map((f) => {
+    let status: DriveFileWithStatus['status'] = 'ok';
+    if (f.mimeType !== 'application/pdf') status = 'invalid_type';
+    else if (parseInt(f.size ?? '0', 10) > MAX_DISPLAY_BYTES) status = 'too_large';
+    return { id: f.id, name: f.name, size: f.size ?? '0', modifiedTime: f.modifiedTime, mimeType: f.mimeType, status };
+  });
+}
+
+
 export async function listPdfsFromDrive(): Promise<DriveFile[]> {
   const drive = getDriveClient();
   const res = await drive.files.list({

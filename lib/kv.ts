@@ -62,6 +62,12 @@ export async function registerBlob(id: string, meta: BlobMeta): Promise<void> {
   ]);
 }
 
+export async function getBlobMeta(id: string): Promise<(BlobMeta & { id: string }) | null> {
+  const meta = await getRedis().get<BlobMeta | null>(`pdf:blob:${id}`);
+  if (!meta) return null;
+  return { id, ...meta };
+}
+
 export async function getBlobUrl(id: string): Promise<string | null> {
   const meta = await getRedis().get<BlobMeta | null>(`pdf:blob:${id}`);
   return meta?.url ?? null;
@@ -80,3 +86,52 @@ export async function listBlobFiles(): Promise<Array<BlobMeta & { id: string }>>
     .filter((x): x is BlobMeta & { id: string } => x !== null);
 }
 
+// ── QR metadata ────────────────────────────────────────────────────────────
+
+export interface QRMeta {
+  title: string;
+  subtitle: string;
+  url: string;
+  blobUrl: string;
+  linkedPdfId: string | null;
+  primaryColor: string;
+  secondaryColor: string;
+  bgColor: string;
+  dotsType: string;
+  cornersType: string;
+  logoUrl: string | null;
+  createdAt: string;
+}
+
+export async function registerQR(id: string, meta: QRMeta): Promise<void> {
+  const r = getRedis();
+  await Promise.all([
+    r.set(`qr:${id}`, meta),
+    r.rpush('qr:ids', id),
+  ]);
+}
+
+export async function getQRMeta(id: string): Promise<QRMeta | null> {
+  return getRedis().get<QRMeta | null>(`qr:${id}`);
+}
+
+export async function listQRs(): Promise<Array<QRMeta & { id: string }>> {
+  const ids = await getRedis().lrange<string>('qr:ids', 0, -1);
+  if (ids.length === 0) return [];
+  const metas = await getRedis().mget<(QRMeta | null)[]>(...ids.map((id) => `qr:${id}`));
+  return ids
+    .map((id, i) => {
+      const m = metas[i];
+      if (!m) return null;
+      return { id, ...m };
+    })
+    .filter((x): x is QRMeta & { id: string } => x !== null);
+}
+
+export async function deleteQR(id: string): Promise<void> {
+  const r = getRedis();
+  await Promise.all([
+    r.del(`qr:${id}`),
+    r.lrem('qr:ids', 0, id),
+  ]);
+}

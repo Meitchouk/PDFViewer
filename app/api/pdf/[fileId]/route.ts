@@ -8,10 +8,11 @@ export const maxDuration = 60;
 const VALID_FILE_ID = /^[a-zA-Z0-9_-]+$/;
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
   const { fileId } = await params;
+  const isDownload = request.nextUrl.searchParams.get('download') === '1';
 
   if (!VALID_FILE_ID.test(fileId)) {
     return new NextResponse('ID inválido', { status: 400 });
@@ -35,9 +36,11 @@ export async function GET(
         },
       });
       if (!res.ok) return new NextResponse('No encontrado', { status: 404 });
+      const disposition = isDownload ? `attachment; filename="${encodeURIComponent(fileId)}.pdf"` : 'inline';
       return new NextResponse(res.body, {
         headers: {
           'Content-Type': 'application/pdf',
+          'Content-Disposition': disposition,
           'Cache-Control': 'private, max-age=3600',
         },
       });
@@ -61,7 +64,9 @@ export async function GET(
     return new NextResponse(webStream, {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="${encodeURIComponent(name)}"`,
+        'Content-Disposition': isDownload
+          ? `attachment; filename="${encodeURIComponent(name)}"`
+          : `inline; filename="${encodeURIComponent(name)}"`,
         'Cache-Control': 'private, max-age=3600',
       },
     });

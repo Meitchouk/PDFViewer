@@ -1,115 +1,100 @@
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { verifyToken, COOKIE_NAME } from '@/lib/auth';
-import { listPdfsFromDrive } from '@/lib/googleDrive';
-import { getEnabledMap } from '@/lib/kv';
-import PDFToggleList from '@/components/admin/PDFToggleList';
+import { listAllDriveFilesWithStatus } from '@/lib/googleDrive';
+import { getEnabledMap, listBlobFiles, listQRs } from '@/lib/kv';
+import AdminTabs, { type PdfItem } from '@/components/admin/AdminTabs';
 import LogoutButton from './LogoutButton';
+import { ModeToggle } from '@/components/ModeToggle';
+import Link from 'next/link';
+import { ExternalLink } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminPage() {
-  // Verificar sesión (el middleware ya protege, pero doble verificación)
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
   if (!token || !(await verifyToken(token))) {
     redirect('/admin/login');
   }
 
-  // Obtener todos los PDFs de Drive con su estado
-  let pdfs: Array<{
-    id: string;
-    name: string;
-    size: string;
-    modifiedTime: string;
-    enabled: boolean;
-  }> = [];
-
+  let pdfs: PdfItem[] = [];
   let fetchError: string | null = null;
+
+  const [qrs] = await Promise.all([listQRs()]).catch(() => [[]]);
 
   try {
     const [driveFiles, blobFiles] = await Promise.all([
-      listPdfsFromDrive(),
-      import('@/lib/kv').then((m) => m.listBlobFiles()),
+      listAllDriveFilesWithStatus(),
+      listBlobFiles(),
     ]);
 
     const allFiles = [
-      ...driveFiles,
+      ...driveFiles.map((f) => ({
+        id: f.id,
+        name: f.name,
+        size: f.size,
+        modifiedTime: f.modifiedTime,
+        status: f.status,
+      })),
       ...blobFiles.map((b) => ({
         id: b.id,
         name: b.name,
         size: b.size,
         modifiedTime: b.uploadedAt,
+        status: 'ok' as const,
       })),
     ];
 
-    const enabledMap = await getEnabledMap(allFiles.map((f) => f.id));
-    pdfs = allFiles.map((f) => ({ ...f, enabled: enabledMap[f.id] }));
+    const validIds = allFiles.filter((f) => !f.status || f.status === 'ok').map((f) => f.id);
+    const enabledMap = await getEnabledMap(validIds);
+
+    pdfs = allFiles.map((f) => ({
+      ...f,
+      enabled: enabledMap[f.id] ?? true,
+    }));
   } catch (err) {
     console.error('[Admin] Error cargando PDFs:', err);
-    fetchError = 'No se pudo conectar con Google Drive o la base de datos. Verifica las variables de entorno.';
+    fetchError = 'No se pudo conectar con Google Drive o la base de datos.';
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-4 sm:px-6">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
+      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur border-b border-border px-4 py-3 sm:px-6">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Panel Admin</h1>
-            <p className="text-xs text-gray-400 mt-0.5">Gestión de documentos PDF</p>
+            <h1 className="text-lg font-bold leading-tight">Panel Admin</h1>
+            <p className="text-xs text-muted-foreground">Gestión de documentos PDF</p>
           </div>
-          <div className="flex items-center gap-3">
-            <a
+          <div className="flex items-center gap-2">
+            <ModeToggle />
+            <Link
               href="/"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm text-gray-500 hover:text-blue-600 transition-colors flex items-center gap-1"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-muted"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-              Ver sitio
-            </a>
+              <ExternalLink className="size-3.5" />
+              <span className="hidden sm:inline">Ver sitio</span>
+            </Link>
             <LogoutButton />
           </div>
         </div>
       </header>
 
-      {/* Contenido */}
-      <div className="max-w-4xl mx-auto px-4 py-6 sm:px-6">
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sm:p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-semibold text-gray-800">
-              Documentos en Google Drive
-            </h2>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-md">
-              Activa o desactiva la visibilidad de cada PDF
-            </span>
+      {/* Content */}
+      <div className="max-w-5xl mx-auto px-4 py-6 sm:px-6">
+        {fetchError ? (
+          <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 text-sm text-destructive">
+            <p className="font-medium mb-1">Error de configuración</p>
+            <p>{fetchError}</p>
           </div>
-
-          {fetchError ? (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-600">
-              <p className="font-medium mb-1">Error de configuración</p>
-              <p>{fetchError}</p>
-            </div>
-          ) : (
-            <PDFToggleList initialPdfs={pdfs} />
-          )}
-        </div>
-
-        {/* Nota informativa */}
-        <div className="mt-4 flex items-start gap-2 text-xs text-gray-400">
-          <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p>
-            Los cambios son inmediatos. Los documentos desactivados no aparecen en el sitio público
-            ni pueden descargarse. Para agregar nuevos PDFs, súbelos directamente a la carpeta de
-            Google Drive configurada.
-          </p>
-        </div>
+        ) : (
+          <AdminTabs initialPdfs={pdfs} initialQRs={qrs} />
+        )}
       </div>
     </div>
   );
 }
+
