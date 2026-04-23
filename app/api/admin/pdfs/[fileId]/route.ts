@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { del, put } from '@vercel/blob';
-import { getBlobUrl, getBlobMeta, deleteBlobMeta, updateBlobMeta, setBlobOverride, getBlobOverride, deleteBlobOverride } from '@/lib/kv';
-import { deletePdfFromDrive, updateDriveFileName } from '@/lib/googleDrive';
+import { randomUUID } from 'crypto';
+import {
+  getBlobUrl,
+  deleteBlobMeta,
+  registerBlob,
+  getAliasByFileId,
+  deleteAlias,
+  transferAlias,
+} from '@/lib/kv';
+import { deletePdfFromDrive } from '@/lib/googleDrive';
 
 const VALID_FILE_ID = /^[a-zA-Z0-9_-]+$/;
 const MAX_SIZE = 50 * 1024 * 1024;
@@ -19,21 +27,16 @@ export async function DELETE(
   }
 
   try {
+    // Limpiar alias antes de borrar el archivo
+    const aliasSlug = await getAliasByFileId(fileId);
+    if (aliasSlug) await deleteAlias(aliasSlug);
+
     if (fileId.startsWith('vb')) {
-      // Vercel Blob: eliminar archivo y metadata en Redis
       const blobUrl = await getBlobUrl(fileId);
-      if (blobUrl) {
-        await del(blobUrl);
-      }
+      if (blobUrl) await del(blobUrl);
       await deleteBlobMeta(fileId);
     } else {
-      // Google Drive: eliminar el archivo y limpiar override si existe
-      const override = await getBlobOverride(fileId);
-      await Promise.all([
-        deletePdfFromDrive(fileId),
-        override?.blobUrl ? del(override.blobUrl).catch(() => {}) : Promise.resolve(),
-        deleteBlobOverride(fileId),
-      ]);
+      await deletePdfFromDrive(fileId);
     }
 
     return NextResponse.json({ ok: true });
@@ -82,65 +85,42 @@ export async function PUT(
   const now = new Date().toISOString();
 
   try {
+    // Siempre crear un nuevo archivo Blob con ID nuevo.
+    // El alias se transfiere del ID viejo al nuevo, por lo que la URL
+    // /a/{slug} sigue funcionando apuntando al contenido actualizado.
+    const newId = `vb${randomUUID().replace(/-/g, '')}`;
+
+    const { url: newBlobUrl } = await put(`pdfs/${safeName}`, buffer, {
+      access: 'private',
+      addRandomSuffix: true,
+    });
+
+    await registerBlob(newId, {
+      name: safeName,
+      url: newBlobUrl,
+      size: String(buffer.length),
+      uploadedAt: now,
+    });
+
+    // Transferir alias: alias:{slug} → newId
+    await transferAlias(fileId, newId);
+
+    // Borrar archivo anterior
     if (fileId.startsWith('vb')) {
-      // Vercel Blob: subir nuevo archivo, actualizar Redis, borrar el anterior
-      const meta = await getBlobMeta(fileId);
-      const oldBlobUrl = meta?.url ?? null;
-
-      const { url: newBlobUrl } = await put(`pdfs/${safeName}`, buffer, {
-        access: 'private',
-        addRandomSuffix: true,
-      });
-
-      await updateBlobMeta(fileId, {
-        name: safeName,
-        url: newBlobUrl,
-        size: String(buffer.length),
-        uploadedAt: now,
-      });
-
-      if (oldBlobUrl) {
-        await del(oldBlobUrl).catch(() => { /* ignorar si ya no existe */ });
-      }
-
-      return NextResponse.json({
-        id: fileId,
-        name: safeName,
-        size: String(buffer.length),
-        modifiedTime: now,
-      });
+      const oldBlobUrl = await getBlobUrl(fileId);
+      if (oldBlobUrl) await del(oldBlobUrl).catch(() => {});
+      await deleteBlobMeta(fileId);
     } else {
-      // Google Drive: subir nuevo contenido a Blob como override
-      // (drive.files.update con media no funciona en entornos serverless)
-      const oldOverride = await getBlobOverride(fileId);
-
-      const { url: newBlobUrl } = await put(`pdfs/${safeName}`, buffer, {
-        access: 'private',
-        addRandomSuffix: true,
-      });
-
-      await setBlobOverride(fileId, {
-        blobUrl: newBlobUrl,
-        name: safeName,
-        size: String(buffer.length),
-        uploadedAt: now,
-      });
-
-      // Borrar el blob override anterior si existía
-      if (oldOverride?.blobUrl) {
-        await del(oldOverride.blobUrl).catch(() => {});
-      }
-
-      // Actualizar nombre en Drive (solo metadata, sin contenido)
-      await updateDriveFileName(fileId, safeName).catch(() => {});
-
-      return NextResponse.json({
-        id: fileId,
-        name: safeName,
-        size: String(buffer.length),
-        modifiedTime: now,
-      });
+      // Para Drive: eliminar (no crítico si falla)
+      await deletePdfFromDrive(fileId).catch(() => {});
     }
+
+    return NextResponse.json({
+      id: newId,
+      name: safeName,
+      size: String(buffer.length),
+      modifiedTime: now,
+    });
   } catch (error) {
     console.error('[PUT /api/admin/pdfs/:id] Error:', error);
     return NextResponse.json({ error: 'Error al reemplazar el documento' }, { status: 500 });

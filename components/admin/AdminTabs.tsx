@@ -210,7 +210,7 @@ export default function AdminTabs({ initialPdfs, initialQRs }: AdminTabsProps) {
       if (!res.ok) throw new Error(data.error ?? 'Error del servidor');
       setPdfs((prev) => prev.map((p) =>
         p.id === fileId
-          ? { ...p, name: data.name, size: data.size, modifiedTime: data.modifiedTime }
+          ? { ...p, id: data.id, name: data.name, size: data.size, modifiedTime: data.modifiedTime }
           : p
       ));
       showSuccess(`Archivo reemplazado correctamente. La URL del QR no ha cambiado.`);
