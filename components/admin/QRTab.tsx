@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { QrCode, Plus, Trash2, Download, Edit2, Link2, FileText } from 'lucide-react';
@@ -209,16 +210,14 @@ export default function QRTab({
                       <Edit2 className="size-3.5" />
                       Editar
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      asChild
+                    <a
+                      href={`/api/qr-image/${qr.id}?download=1`}
+                      download={`${qr.title || 'qr'}.png`}
                       title="Descargar"
+                      className={cn(buttonVariants({ variant: 'outline', size: 'icon-sm' }))}
                     >
-                      <a href={`/api/qr-image/${qr.id}?download=1`} download={`${qr.title || 'qr'}.png`}>
-                        <Download className="size-3.5" />
-                      </a>
-                    </Button>
+                      <Download className="size-3.5" />
+                    </a>
                     <Button
                       variant="ghost"
                       size="icon-sm"
