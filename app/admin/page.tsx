@@ -2,12 +2,13 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { verifyToken, COOKIE_NAME } from '@/lib/auth';
 import { listAllDriveFilesWithStatus } from '@/lib/googleDrive';
-import { getEnabledMap, listBlobFiles, listQRs, getAliasMap } from '@/lib/kv';
+import { getEnabledMap, listBlobFiles, listQRs, getAliasMap, ensureAlias } from '@/lib/kv';
 import AdminTabs, { type PdfItem } from '@/components/admin/AdminTabs';
 import LogoutButton from './LogoutButton';
 import { ModeToggle } from '@/components/ModeToggle';
 import Link from 'next/link';
 import { ExternalLink } from 'lucide-react';
+import { toSlug } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,10 +48,21 @@ export default async function AdminPage() {
     ];
 
     const validIds = allFiles.filter((f) => !f.status || f.status === 'ok').map((f) => f.id);
+    const validFiles = allFiles.filter((f) => !f.status || f.status === 'ok');
     const [enabledMap, aliasMap] = await Promise.all([
       getEnabledMap(validIds),
       getAliasMap(validIds),
     ]);
+
+    // Auto-asignar alias a todos los documentos válidos que aún no lo tengan
+    await Promise.all(
+      validFiles
+        .filter((f) => !aliasMap[f.id])
+        .map(async (f) => {
+          const slug = await ensureAlias(toSlug(f.name), f.id);
+          aliasMap[f.id] = slug;
+        })
+    );
 
     pdfs = allFiles.map((f) => ({
       ...f,
