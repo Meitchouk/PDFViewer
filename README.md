@@ -51,7 +51,7 @@ Crea `.env.local` en la raiz del proyecto (hay un `.env.local` de ejemplo):
 GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 
 # ID de la carpeta de Google Drive
-DRIVE_FOLDER_ID=1aBcDeFgHiJkLmNoPqRsTuVwXyZ
+DRIVE_FOLDER_ID=tu_id_aqui
 
 # Admin
 ADMIN_USERNAME=admin
